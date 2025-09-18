@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Band Booster POS — Mobile</title>
+<style>
+  :root{ --bg:#0b1220; --panel:#101a2c; --ink:#f7fbff; --muted:#2b4166; --accent:#79a6ff; --btn:#2a4b8d; }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;}
+  header{position:sticky;top:0;z-index:5;background:#0e1730;border-bottom:1px solid rgba(255,255,255,0.12);padding:12px 14px;display:flex;justify-content:space-between;align-items:center}
+  header h1{margin:0;font-size:16px;letter-spacing:.3px}
+  .wrap{padding:12px;display:grid;grid-template-columns:1fr;gap:12px;max-width:760px;margin:0 auto}
+  .card{background:var(--panel);border:1px solid rgba(255,255,255,0.12);border-radius:14px;padding:12px}
+  .card h2{margin:0 0 8px 0;font-size:15px}
+  .quickgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  @media(min-width:720px){ .quickgrid{grid-template-columns:repeat(3,1fr)} }
+  .quickbtn{padding:16px 12px;border-radius:14px;background:var(--btn);border:2px solid var(--accent);color:#fff;
+            display:flex;justify-content:space-between;align-items:center;font-size:16px;box-shadow:0 2px 6px rgba(0,0,0,.45)}
+  .quickbtn span{font-size:13px;opacity:.95}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:10px;border-bottom:1px solid rgba(255,255,255,.12);font-size:14px}
+  th{font-size:12px;text-transform:uppercase;letter-spacing:.4px;opacity:.9}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  input,button{font-size:16px}
+  input[type=number], input[type=text]{width:100%;background:#0f1a33;border:1px solid var(--muted);color:var(--ink);padding:10px;border-radius:10px}
+  .btn{padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:#1a2a4d;color:#fff}
+  .btn.primary{background:#2b5bff;border-color:#3a66ff}
+  .btn.danger{background:#531a1a;border-color:#8a2b2b}
+  .totals{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin-top:8px}
+  .monospace{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;}
+  .cashpad{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:6px}
+  .cashpad button{padding:10px;border-radius:10px;background:#12315e;border:1px solid #2f5aa1;color:#fff}
+  .helper{font-size:12px;opacity:.8;margin-top:4px}
+  .tight{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Band Booster POS (Tax Exempt)</h1>
+  <div class="row">
+    <button class="btn" id="btnExportCSV">Export CSV</button>
+    <button class="btn" id="btnClearSales">Clear Sales</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="card">
+    <h2>Food</h2>
+    <div id="quickFood" class="quickgrid"></div>
+    <h2 style="margin-top:10px">Candy</h2>
+    <div id="quickCandy" class="quickgrid"></div>
+    <h2 style="margin-top:10px">Drinks</h2>
+    <div id="quickDrinks" class="quickgrid"></div>
+  </section>
+
+  <section class="card">
+    <h2>Cart</h2>
+    <table id="cartTable">
+      <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+
+    <div class="totals">
+      <div>Subtotal</div><div id="subtotal" class="monospace">$0.00</div>
+      <div>Discount</div><div id="discountOut" class="monospace">-$0.00</div>
+      <div><strong>Total</strong></div><div id="total" class="monospace"><strong>$0.00</strong></div>
+      <div>Amount Paid</div><div><input id="amountPaid" type="number" step="0.01" min="0" placeholder="0.00"></div>
+      <div><strong>Change Due</strong></div><div id="changeDue" class="monospace"><strong>$0.00</strong></div>
+    </div>
+    <div class="cashpad">
+      <button data-cash="1">+$1</button>
+      <button data-cash="5">+$5</button>
+      <button data-cash="10">+$10</button>
+      <button data-cash="20">+$20</button>
+    </div>
+
+    <div class="row" style="justify-content:flex-end;margin-top:8px">
+      <button class="btn" id="btnClearCart">Clear Cart</button>
+      <button class="btn primary" id="btnCheckout">Checkout</button>
+    </div>
+    <div class="helper">Tip: Use the cash buttons to quickly fill the amount paid.</div>
+  </section>
+
+  <section class="card">
+    <h2>Sales Log</h2>
+    <table id="salesTable">
+      <thead><tr><th>#</th><th>Date/Time</th><th>Items</th><th>Subtotal</th><th>Discount</th><th>Total</th><th>Paid</th><th>Change</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+</div>
+
+<script>
+// Basic helpers
+const fmt = n => "$" + (Number(n||0).toFixed(2));
+const uid = () => Math.random().toString(36).slice(2);
+const store = { get(k,d){ try{return JSON.parse(localStorage.getItem(k)) ?? d}catch(e){return d} }, set(k,v){ localStorage.setItem(k, JSON.stringify(v)) } };
+
+// Data
+let cart = [];
+let sales = store.get("bb_pos_sales", []);
+
+// Elements
+const els = {
+  quickFood: document.getElementById("quickFood"),
+  quickCandy: document.getElementById("quickCandy"),
+  quickDrinks: document.getElementById("quickDrinks"),
+  cartTable: document.querySelector("#cartTable tbody"),
+  subtotal: document.getElementById("subtotal"),
+  discountOut: document.getElementById("discountOut"),
+  total: document.getElementById("total"),
+  amountPaid: document.getElementById("amountPaid"),
+  changeDue: document.getElementById("changeDue"),
+  salesTable: document.querySelector("#salesTable tbody"),
+};
+
+// Menu (Bulldog Special at the top)
+const menu = {
+  Food: [
+    ["Bulldog Special",4.00],["Brisket Taco",5.50],["Brisket Nacho",8.00],["Corn in a Cup",5.00],["Sausage Wrap",6.00],
+    ["Cheese Nachos",5.00],["Frito Pie",4.00],["Hot Cheetos w/ Cheese",3.00],["Takis w/ Cheese",3.00],
+    ["Hot Dog",2.00],["Chips",1.00],["Fruit Cup",5.00],["Veggie Cup",4.00]
+  ],
+  Candy: [
+    ["Pickle",2.00],["Chocolate Bar",2.00],["Candy Pack",2.00],["Blow Pop",0.50],["Cotton Candy",5.00]
+  ],
+  Drinks: [
+    ["Aguas Frescas",5.00],["Gatorade",3.00],["Water",2.00],["Soda",2.00],["Snow Cone",4.00]
+  ]
+};
+
+// Render quick buttons
+function renderQuickButtons(){
+  function fill(list, el){
+    el.innerHTML = "";
+    list.forEach(([name, price]) => {
+      const b = document.createElement("button");
+      b.className = "quickbtn";
+      b.innerHTML = `<div>${name}</div><span>${fmt(price)}</span>`;
+      b.onclick = () => addToCart(name, 1, price);
+      el.appendChild(b);
+    });
+  }
+  fill(menu.Food, els.quickFood);
+  fill(menu.Candy, els.quickCandy);
+  fill(menu.Drinks, els.quickDrinks);
+}
+renderQuickButtons();
+
+// Cart logic
+function addToCart(name, qty, price){
+  const idx = cart.findIndex(l => l.name === name && l.price === price);
+  if(idx > -1){ cart[idx].qty += qty; }
+  else { cart.push({id:uid(), name, qty, price}); }
+  renderCart();
+}
+
+function renderCart(){
+  els.cartTable.innerHTML = "";
+  cart.forEach((l,i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${l.name}</td>
+      <td><input type="number" min="1" step="1" value="${l.qty}" data-i="${i}" class="qty"></td>
+      <td>${fmt(l.price)}</td>
+      <td>${fmt(l.qty*l.price)}</td>
+      <td><button class="btn danger" data-del="${i}">Remove</button></td>`;
+    els.cartTable.appendChild(tr);
+  });
+  // quantity change
+  els.cartTable.querySelectorAll("input.qty").forEach(inp=>{
+    inp.oninput = e => { const i = Number(e.target.getAttribute("data-i")); cart[i].qty = Math.max(1, Number(e.target.value||1)); renderCart(); };
+  });
+  // remove
+  els.cartTable.querySelectorAll("button[data-del]").forEach(btn=>{
+    btn.onclick = e => { const i = Number(btn.getAttribute("data-del")); cart.splice(i,1); renderCart(); };
+  });
+  computeTotals();
+}
+
+function computeTotals(){
+  const subtotal = cart.reduce((a,l)=>a + l.qty*l.price, 0);
+  const discount = 0;
+  const total = Math.max(0, subtotal - discount);
+  els.subtotal.textContent = fmt(subtotal);
+  els.discountOut.textContent = "-" + fmt(discount);
+  els.total.textContent = fmt(total);
+  const paid = Number(els.amountPaid.value||0);
+  const change = paid - total;
+  els.changeDue.textContent = fmt(change > 0 ? change : 0);
+  return {subtotal, discount, total, paid, change};
+}
+
+document.getElementById("btnClearCart").onclick = () => { cart = []; renderCart(); els.amountPaid.value = ""; els.changeDue.textContent = "$0.00"; };
+document.getElementById("btnCheckout").onclick = () => {
+  if(cart.length === 0){ alert("Cart is empty."); return; }
+  const {subtotal, discount, total, paid, change} = computeTotals();
+  const sale = { id:uid(), ts:new Date().toISOString(), items: cart.map(l=>({name:l.name, qty:l.qty, price:l.price})), subtotal, discount, total, paid, change };
+  sales.push(sale); store.set("bb_pos_sales", sales);
+  renderSales(); cart = []; renderCart(); els.amountPaid.value=""; els.changeDue.textContent = "$0.00";
+  alert("Sale recorded. Change due: " + fmt(change));
+};
+
+function renderSales(){
+  els.salesTable.innerHTML = "";
+  sales.forEach((s,i) => {
+    const tr = document.createElement("tr");
+    const itemsStr = s.items.map(it => `${it.qty}× ${it.name}`).join(", ");
+    tr.innerHTML = `<td>${i+1}</td><td>${new Date(s.ts).toLocaleString()}</td><td>${itemsStr}</td>
+      <td>${fmt(s.subtotal)}</td><td>${fmt(s.discount)}</td><td>${fmt(s.total)}</td><td>${fmt(s.paid)}</td><td>${fmt(s.change)}</td>`;
+    els.salesTable.appendChild(tr);
+  });
+}
+
+document.getElementById("btnExportCSV").onclick = () => {
+  if(sales.length === 0){ alert("No sales to export."); return; }
+  const rows = [["id","datetime","items","subtotal","discount","total","paid","change"]];
+  sales.forEach(s => {
+    const itemsStr = s.items.map(it => `${it.qty}x ${it.name} @ ${fmt(it.price)}`).join(" | ");
+    rows.push([s.id, new Date(s.ts).toLocaleString(), itemsStr, s.subtotal, s.discount, s.total, s.paid, s.change]);
+  });
+  const csv = rows.map(r=>r.map(v => '"' + String(v).replace(/"/g,'""') + '"').join(",")).join("\n");
+  const blob = new Blob([csv], {type:"text/csv"});
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "booster_sales.csv"; a.click();
+};
+
+document.getElementById("btnClearSales").onclick = () => {
+  if(!confirm("Clear ALL saved sales?")) return;
+  sales = []; store.set("bb_pos_sales", sales); renderSales();
+};
+
+// Cash quick buttons
+document.querySelectorAll(".cashpad button").forEach(b=>{
+  b.onclick = () => {
+    const add = Number(b.getAttribute("data-cash") || 0);
+    const cur = Number(els.amountPaid.value || 0);
+    els.amountPaid.value = (cur + add).toFixed(2);
+    computeTotals();
+  };
+});
+els.amountPaid.addEventListener("input", computeTotals);
+
+// Init
+renderCart(); renderSales();
+</script>
+
+<noscript style="color:white">This POS requires JavaScript enabled.</noscript>
+</body>
+</html>
